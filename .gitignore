@@ -1,0 +1,10 @@
+.env
+.env.test
+.env.local
+docker-compose.override.yml
+volumes/
+shared/
+supabase/
+searxng/uwsgi.ini
+searxng/settings.yml
+toignore.txt
