@@ -8,3 +8,11 @@ supabase/
 searxng/uwsgi.ini
 searxng/settings.yml
 toignore.txt
+.env
+volumes/
+shared/
+neo4j/
+shared-backup/
+.env.test
+searxng/settings.yml
+searxng/uwsgi*
