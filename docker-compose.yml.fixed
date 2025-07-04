@@ -13,9 +13,9 @@ volumes:
   langfuse_minio_data: null
   minio_data: {}
   rabbitmq_data: {}
-x-n8n: &service-n8n
+x-n8n:
   image: n8nio/n8n:latest
-  environment:
+  environment: &id001
   - DB_TYPE=postgresdb
   - DB_POSTGRESDB_HOST=db
   - DB_POSTGRESDB_USER=postgres
@@ -33,21 +33,26 @@ x-n8n: &service-n8n
   - S3_MINIO_BUCKET_ENDPOINT=${S3_MINIO_BUCKET_ENDPOINT}
   - SUPABASE_URL=${SUPABASE_URL}
   - SUPABASE_KEY=${SERVICE_ROLE_KEY}
-x-ollama: &service-ollama
+x-ollama:
   image: ollama/ollama:latest
   container_name: ollama
   restart: unless-stopped
-  ports:
-  - 11434:11434
-  volumes:
+  expose: &id003
+  - 11434/tcp
+  environment: &id004
+  - OLLAMA_CONTEXT_LENGTH=8192
+  - OLLAMA_FLASH_ATTENTION=1
+  - OLLAMA_KV_CACHE_TYPE=q8_0
+  - OLLAMA_MAX_LOADED_MODELS=2
+  volumes: &id005
   - ollama_storage:/root/.ollama
-x-init-ollama: &init-ollama
+x-init-ollama:
   image: ollama/ollama:latest
   container_name: ollama-pull-llama
-  volumes:
+  volumes: &id006
   - ollama_storage:/root/.ollama
   entrypoint: /bin/sh
-  command:
+  command: &id007
   - -c
   - sleep 3; OLLAMA_HOST=ollama:11434 ollama pull qwen2.5:7b-instruct-q4_K_M; OLLAMA_HOST=ollama:11434
     ollama pull nomic-embed-text
@@ -99,13 +104,19 @@ services:
     volumes:
     - ./n8n/backup:/backup
   n8n:
-    <<: *service-n8n
+    image: n8nio/n8n:latest
+    environment: *id001
     container_name: n8n
     restart: unless-stopped
     ports:
     - 5678:5678
     volumes:
     - n8n_storage:/home/node/.n8n
+    - ./n8n/backup:/backup
+    - ./shared:/data/shared
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
   qdrant:
     image: qdrant/qdrant
     container_name: qdrant
@@ -132,10 +143,10 @@ services:
   caddy:
     container_name: caddy
     image: docker.io/library/caddy:2-alpine
-    restart: unless-stopped
+    restart: unless-stoppedw
     ports:
-    - 8090:80/tcp
-    - 8453:443/tcp
+    - 80:80/tcp
+    - 443:443/tcp
     expose:
     - 2019/tcp
     - 443/tcp
@@ -168,14 +179,14 @@ services:
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     restart: always
-    depends_on: &id001
+    depends_on: &id002
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       redis:
         condition: service_healthy
       clickhouse:
-        condition: service_healthy
-      minio-langfuse:
         condition: service_healthy
     expose:
     - 3030/tcp
@@ -194,7 +205,7 @@ services:
       LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-minio}
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio-langfuse:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
       LANGFUSE_S3_EVENT_UPLOAD_PREFIX: ${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
@@ -208,7 +219,7 @@ services:
       LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANGFUSE_S3_BATCH_EXPORT_BUCKET:-langfuse}
       LANGFUSE_S3_BATCH_EXPORT_PREFIX: ${LANGFUSE_S3_BATCH_EXPORT_PREFIX:-exports/}
       LANGFUSE_S3_BATCH_EXPORT_REGION: ${LANGFUSE_S3_BATCH_EXPORT_REGION:-auto}
-      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_ENDPOINT:-http://minio-langfuse:9000}
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_ENDPOINT:-http://minio:9000}
       LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT:-http://localhost:9090}
       LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID:-minio}
       LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -225,7 +236,7 @@ services:
   langfuse-web:
     image: langfuse/langfuse:3
     restart: always
-    depends_on: *id001
+    depends_on: *id002
     expose:
     - 3000/tcp
     environment:
@@ -243,7 +254,7 @@ services:
       LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-minio}
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio-langfuse:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
       LANGFUSE_S3_EVENT_UPLOAD_PREFIX: ${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
@@ -257,7 +268,7 @@ services:
       LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANGFUSE_S3_BATCH_EXPORT_BUCKET:-langfuse}
       LANGFUSE_S3_BATCH_EXPORT_PREFIX: ${LANGFUSE_S3_BATCH_EXPORT_PREFIX:-exports/}
       LANGFUSE_S3_BATCH_EXPORT_REGION: ${LANGFUSE_S3_BATCH_EXPORT_REGION:-auto}
-      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_ENDPOINT:-http://minio-langfuse:9000}
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_ENDPOINT:-http://minio:9000}
       LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT:-http://localhost:9090}
       LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID:-minio}
       LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -304,6 +315,18 @@ services:
       timeout: 5s
       retries: 10
       start_period: 1s
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+    - 9000:9000
+    - 9001:9001
+    volumes:
+    - minio_data:/data
   postgres:
     image: postgres:${POSTGRES_VERSION:-latest}
     restart: unless-stopped
@@ -377,24 +400,18 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     restart: unless-stopped
-    expose: &id002
-    - 11434/tcp
-    environment: &id003
-    - OLLAMA_CONTEXT_LENGTH=8192
-    - OLLAMA_FLASH_ATTENTION=1
-    - OLLAMA_KV_CACHE_TYPE=q8_0
-    - OLLAMA_MAX_LOADED_MODELS=2
-    volumes: &id004
-    - ollama_storage:/root/.ollama
+    expose: *id003
+    environment: *id004
+    volumes: *id005
     profiles:
     - cpu
   ollama-gpu:
     image: ollama/ollama:latest
     container_name: ollama
     restart: unless-stopped
-    expose: *id002
-    environment: *id003
-    volumes: *id004
+    expose: *id003
+    environment: *id004
+    volumes: *id005
     profiles:
     - gpu-nvidia
     deploy:
@@ -409,9 +426,9 @@ services:
     image: ollama/ollama:rocm
     container_name: ollama
     restart: unless-stopped
-    expose: *id002
-    environment: *id003
-    volumes: *id004
+    expose: *id003
+    environment: *id004
+    volumes: *id005
     profiles:
     - gpu-amd
     devices:
@@ -420,13 +437,9 @@ services:
   ollama-pull-llama-cpu:
     image: ollama/ollama:latest
     container_name: ollama-pull-llama
-    volumes: &id005
-    - ollama_storage:/root/.ollama
+    volumes: *id006
     entrypoint: /bin/sh
-    command: &id006
-    - -c
-    - sleep 3; OLLAMA_HOST=ollama:11434 ollama pull qwen2.5:7b-instruct-q4_K_M; OLLAMA_HOST=ollama:11434
-      ollama pull nomic-embed-text
+    command: *id007
     profiles:
     - cpu
     depends_on:
@@ -434,9 +447,9 @@ services:
   ollama-pull-llama-gpu:
     image: ollama/ollama:latest
     container_name: ollama-pull-llama
-    volumes: *id005
+    volumes: *id006
     entrypoint: /bin/sh
-    command: *id006
+    command: *id007
     profiles:
     - gpu-nvidia
     depends_on:
@@ -444,51 +457,13 @@ services:
   ollama-pull-llama-gpu-amd:
     image: ollama/ollama:rocm
     container_name: ollama-pull-llama
-    volumes: *id005
+    volumes: *id006
     entrypoint: /bin/sh
-    command: *id006
+    command: *id007
     profiles:
     - gpu-amd
     depends_on:
     - ollama-gpu-amd
-  minio-langfuse:
-    image: minio/minio
-    restart: always
-    entrypoint: sh
-    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address
-      ":9001" /data'
-    expose:
-    - 9000/tcp
-    - 9001/tcp
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-    - langfuse_minio_data:/data
-    healthcheck:
-      test:
-      - CMD
-      - mc
-      - ready
-      - local
-      interval: 1s
-      timeout: 5s
-      retries: 5
-      start_period: 1s
-    container_name: minio-langfuse
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-    - 9000:9000
-    - 9001:9001
-    volumes:
-    - minio_data:/data
-    restart: unless-stopped
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
@@ -501,7 +476,3 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     volumes:
     - rabbitmq_data:/var/lib/rabbitmq
-
-# Temporairement désactivé à cause d'un problème de validation
-# include:
-#   - ./supabase/docker/docker-compose.yml
